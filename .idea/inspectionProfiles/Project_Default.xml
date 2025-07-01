@@ -1,0 +1,15 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyUnresolvedReferencesInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredIdentifiers">
+        <list>
+          <option value="str.add_role_employee" />
+          <option value="int.get_e_id" />
+          <option value="spss" />
+          <option value="panda.read.excel" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>
