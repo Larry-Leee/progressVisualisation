@@ -18,7 +18,7 @@ def extract_table_3_2(docx_file):
             df = pd.DataFrame(rows, columns=headers)
             match_tables.append(df[['分部工程', '本月计划工程量', '本月完成工程量']])
 
-    # 取第2个匹配表（表3.2）
+
     if len(match_tables) >= 2:
         return match_tables[1]
     elif match_tables:
