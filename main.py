@@ -53,11 +53,11 @@ st.title("📊输水工程计划 vs 实际对比柱状图")
 uploaded_file = st.file_uploader("请上传月报 Word 文件（.docx）", type=["docx"])
 
 if uploaded_file:
-    st.success("✅ 上传成功，正在读取表3.2…")
+    st.success("✅ 上传成功，正在读取文档")
     df = extract_table_3_2(uploaded_file)
 
     if df is not None:
-        st.subheader("📄 提取出的表3.2数据")
+        st.subheader("📄 提取出进度相关数据")
         st.dataframe(df)
 
         st.subheader("📈 自动生成计划 vs 实际对比柱状图")
