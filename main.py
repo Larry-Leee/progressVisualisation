@@ -67,8 +67,22 @@ def plot_plan_vs_actual(df):
     return bar, names
 
 st.set_page_config(layout="wide")
-st.title("📊输水工程计划 vs 实际对比柱状图")
-
+# st.title("📊输水工程计划 vs 实际对比柱状图")
+st.markdown(
+    """
+    <style>
+    .big-title {
+        text-align: center;
+        font-size: 42px !important;
+        color: #1ABC9C;
+        font-weight: bold;
+        font-family: "Microsoft YaHei", sans-serif;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+st.markdown("<p class='big-title'>重庆市藻渡水库隧洞进度可视化管理系统</p>", unsafe_allow_html=True)
 
 def bar_plan_and_accumlative(df, names):
     df = df[['分部工程', '设计工程量', '开累完成工程量']].copy()
@@ -104,11 +118,11 @@ if uploaded_file:
         st.subheader("📄 提取出进度相关数据")
         st.dataframe(df)
 
-        st.subheader("📈 自动生成计划 vs 实际对比柱状图")
+        st.subheader("📈 计划进度 vs 实际进度对比柱状图")
         chart1, names = plot_plan_vs_actual(df)
         st_pyecharts(chart1)
 
-        st.subheader("📉 自动生成设计工程量 vs 开累完成工程量对比柱状图")
+        st.subheader("📉 设计工程量 vs 开累完成工程量对比柱状图")
         chart2 = bar_plan_and_accumlative(df, names)
         st_pyecharts(chart2)
 
