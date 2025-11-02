@@ -1,156 +1,165 @@
 import streamlit as st
 import pandas as pd
 from docx import Document
-import mysql.connector
 from pyecharts.charts import Bar
 from pyecharts import options as opts
 from streamlit_echarts import st_pyecharts
-from datetime import datetime
+from fpdf import FPDF
+import os
 
-# ========== MySQL 配置 ==========
-DB_CONFIG = {
-    "host": "localhost",
-    "user": "root",
-    "password": "8brs5r00",
-    "database": "water_progress",
-    "charset": "utf8mb4"
-}
-
-# ========== 最近月份列表 ==========
-def get_recent_months(n=12):
-    today = datetime.today()
-    return [
-        (today.replace(day=1) - pd.DateOffset(months=i)).strftime("%Y-%m")
-        for i in range(n)
-    ]
-
-# ========== 提取 Word 表格 ==========
 def extract_table_3_2(docx_file):
     doc = Document(docx_file)
-    for table in doc.tables:
+    match_tables = []
+
+    for idx, table in enumerate(doc.tables):
         headers = [cell.text.strip() for cell in table.rows[0].cells]
-        if "本月计划工程量" in headers and "本月完成工程量" in headers:
-            df = []
+        header_text = ''.join(headers)
+        if ("分部" in header_text and "计划" in header_text and "完成" in header_text and "设计" in header_text and "开累" in header_text):
+            rows = []
             for row in table.rows[1:]:
-                df.append([cell.text.strip() for cell in row.cells])
-            df = pd.DataFrame(df, columns=headers)
-            return df
-    return None
+                rows.append([cell.text.strip() for cell in row.cells])
+            df = pd.DataFrame(rows, columns=headers)
 
-# ========== 字段映射与清洗 ==========
-def process_dataframe(df_raw, report_month, source_file):
-    df = df_raw.rename(columns={
-        '名称': 'project_name',
-        '本月计划工程量': 'plan_amount',
-        '本月完成工程量': 'actual_amount'
-    })
-    df['plan_amount'] = pd.to_numeric(df['plan_amount'], errors='coerce')
-    df['actual_amount'] = pd.to_numeric(df['actual_amount'], errors='coerce')
-    df.dropna(subset=['project_name', 'plan_amount', 'actual_amount'], inplace=True)
-    df['report_month'] = report_month
-    df['source_file'] = source_file
-    return df[['report_month', 'project_name', 'plan_amount', 'actual_amount', 'source_file']]
+            def find_col(cols, keyword):
+                return next((c for c in cols if keyword in c), None)
 
-# ========== 写入数据库 ==========
-def insert_to_mysql(df):
-    conn = mysql.connector.connect(**DB_CONFIG)
-    cursor = conn.cursor()
-    sql = """
-        INSERT INTO water_project_progress
-        (report_month, project_name, plan_amount, actual_amount, source_file)
-        VALUES (%s, %s, %s, %s, %s)
-    """
-    for _, row in df.iterrows():
-        cursor.execute(sql, tuple(row))
-    conn.commit()
-    cursor.close()
-    conn.close()
+            col_fb = find_col(headers, "分部")
+            col_sj = find_col(headers, "设计")
+            col_kl = find_col(headers, "开累")
+            col_jh = find_col(headers, "计划")
+            col_wc = find_col(headers, "完成")
 
-# ========== 查询当月数据 ==========
-def get_month_data(report_month):
-    conn = mysql.connector.connect(**DB_CONFIG)
-    df = pd.read_sql(f"""
-        SELECT project_name, plan_amount, actual_amount
-        FROM water_project_progress
-        WHERE report_month = '{report_month}'
-    """, conn)
-    conn.close()
-    return df
+            if all([col_fb, col_sj, col_kl, col_jh, col_wc]):
+                df = df[[col_fb, col_sj, col_kl, col_jh, col_wc]]
+                df.columns = ['分部工程', '设计工程量', '开累完成工程量', '本月计划工程量', '本月完成工程量']
+                match_tables.append(df)
 
-# ========== 查询累计数据 ==========
-def get_cumulative_data():
-    conn = mysql.connector.connect(**DB_CONFIG)
-    df = pd.read_sql("""
-        SELECT project_name,
-               SUM(plan_amount) AS total_plan,
-               SUM(actual_amount) AS total_actual
-        FROM water_project_progress
-        GROUP BY project_name
-    """, conn)
-    conn.close()
-    return df
+    if len(match_tables) >= 2:
+        return match_tables[1]
+    elif match_tables:
+        return match_tables[0]
+    else:
+        return None
 
-# ========== 柱状图绘制 ==========
-def plot_bar_chart(x, plan, actual, title):
+def plot_plan_vs_actual(df):
+    df = df[['分部工程', '本月计划工程量', '本月完成工程量']].copy()
+    df['本月计划工程量'] = pd.to_numeric(df['本月计划工程量'], errors='coerce')
+    df['本月完成工程量'] = pd.to_numeric(df['本月完成工程量'], errors='coerce')
+    df.dropna(inplace=True)
+
+    names = df['分部工程'].tolist()
+    plan = df['本月计划工程量'].tolist()
+    actual = df['本月完成工程量'].tolist()
+
     bar = (
         Bar()
-        .add_xaxis(x)
+        .add_xaxis(names)
         .add_yaxis("计划", plan)
         .add_yaxis("实际", actual)
         .set_global_opts(
-            title_opts=opts.TitleOpts(title=title),
-            xaxis_opts=opts.AxisOpts(axislabel_opts={"rotate": 45}),
+            title_opts=opts.TitleOpts(title="计划工程量 vs 实际工程量"),
             tooltip_opts=opts.TooltipOpts(trigger="axis"),
+            xaxis_opts=opts.AxisOpts(axislabel_opts={"rotate": 45}),
             datazoom_opts=[opts.DataZoomOpts(type_="slider")],
         )
     )
     return bar
 
-# ========== 页面逻辑 ==========
+def plot_design_vs_accum(df):
+    df = df[['分部工程', '设计工程量', '开累完成工程量']].copy()
+    df['设计工程量'] = pd.to_numeric(df['设计工程量'], errors='coerce')
+    df['开累完成工程量'] = pd.to_numeric(df['开累完成工程量'], errors='coerce')
+    df.dropna(inplace=True)
+
+    names = df['分部工程'].tolist()
+    design = df['设计工程量'].tolist()
+    accum = df['开累完成工程量'].tolist()
+
+    bar = (
+        Bar()
+        .add_xaxis(names)
+        .add_yaxis("设计工程量", design)
+        .add_yaxis("开累完成工程量", accum)
+        .set_global_opts(
+            title_opts=opts.TitleOpts(title="设计工程量 vs 开累完成工程量"),
+            tooltip_opts=opts.TooltipOpts(trigger="axis"),
+            xaxis_opts=opts.AxisOpts(axislabel_opts={"rotate": 45}),
+            datazoom_opts=[opts.DataZoomOpts(type_="slider")],
+        )
+    )
+    return bar
+
+# ------------------ Streamlit 页面 ------------------
 st.set_page_config(layout="wide")
-st.title("📊 输水工程月报数据上传与对比分析系统")
+st.markdown(
+    """
+    <h1 style='text-align:center; font-size:42px; color:#1ABC9C; font-weight:bold;'>
+    重庆市藻渡水库隧洞进度可视化管理系统
+    </h1>
+    """, unsafe_allow_html=True
+)
 
-report_month = st.selectbox("📆 请选择报表所属月份", get_recent_months())
-uploaded_file = st.file_uploader("📄 上传 Word 文件（含表3.2）", type=["docx"])
+uploaded_files = st.file_uploader(
+    "请上传 Word 月报文件（可批量上传 .docx）",
+    type=["docx"],
+    accept_multiple_files=True
+)
 
-if uploaded_file and report_month:
-    df_raw = extract_table_3_2(uploaded_file)
-    if df_raw is not None:
-        df = process_dataframe(df_raw, report_month, uploaded_file.name)
-        st.subheader("✅ 识别出的数据")
-        st.dataframe(df)
+if uploaded_files:
+    month_data = {}  # 存储每个文件的数据
+    st.success(f"✅ 共上传 {len(uploaded_files)} 个文件，正在解析...")
 
-        if st.button("💾 写入数据库"):
-            insert_to_mysql(df)
-            st.success("✅ 数据已写入 MySQL 数据库")
+    for uploaded_file in uploaded_files:
+        df = extract_table_3_2(uploaded_file)
+        if df is not None:
+            month_data[uploaded_file.name] = df
+        else:
+            st.warning(f"{uploaded_file.name} 未找到表3.2，请检查文档格式。")
 
-        st.subheader("📈 当月 vs 累计图表")
-        col1, col2 = st.columns(2)
+    # 分月展示图表
+    for month, df in month_data.items():
+        with st.expander(f"📊 {month} 数据分析"):
+            st.subheader("计划工程量 vs 实际工程量")
+            chart1 = plot_plan_vs_actual(df)
+            st_pyecharts(chart1)
 
-        with col1:
-            df_month = get_month_data(report_month)
-            if not df_month.empty:
-                chart1 = plot_bar_chart(
-                    x=df_month['project_name'].tolist(),
-                    plan=df_month['plan_amount'].tolist(),
-                    actual=df_month['actual_amount'].tolist(),
-                    title=f"{report_month}：当月计划 vs 实际"
-                )
-                st_pyecharts(chart1)
-            else:
-                st.info("📭 当前月份暂无数据")
+            st.subheader("设计工程量 vs 开累完成工程量")
+            chart2 = plot_design_vs_accum(df)
+            st_pyecharts(chart2)
 
-        with col2:
-            df_cum = get_cumulative_data()
-            if not df_cum.empty:
-                chart2 = plot_bar_chart(
-                    x=df_cum['project_name'].tolist(),
-                    plan=df_cum['total_plan'].tolist(),
-                    actual=df_cum['total_actual'].tolist(),
-                    title="📊 累计计划 vs 实际"
-                )
-                st_pyecharts(chart2)
-            else:
-                st.info("📭 尚无累计数据")
-    else:
-        st.warning("⚠ 未找到表3.2，请确认 Word 表格格式是否正确")
+
+    if st.button("生成 PDF 报告"):
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
+
+        for month, df in month_data.items():
+            pdf.add_page()
+            pdf.set_font("Arial", "B", 16)
+            pdf.cell(0, 10, f"{month} 月报分析", ln=True, align="C")
+
+            # 添加表格
+            pdf.set_font("Arial", "", 12)
+            for i, row in df.iterrows():
+                line = f"{row['分部工程']} | {row['设计工程量']} | {row['开累完成工程量']} | {row['本月计划工程量']} | {row['本月完成工程量']}"
+                pdf.cell(0, 8, line, ln=True)
+
+            # 保存图表为 PNG 并插入 PDF
+            chart1 = plot_plan_vs_actual(df)
+            chart2 = plot_design_vs_accum(df)
+            chart1.render(f"{month}_chart1.png")
+            chart2.render(f"{month}_chart2.png")
+            pdf.image(f"{month}_chart1.png", x=10, w=180)
+            pdf.image(f"{month}_chart2.png", x=10, w=180)
+
+        pdf_file = "批量月报分析报告.pdf"
+        pdf.output(pdf_file)
+
+        # 提供下载
+        with open(pdf_file, "rb") as f:
+            st.download_button(
+                label="📥 下载 PDF 报告",
+                data=f,
+                file_name=pdf_file,
+                mime="application/pdf"
+            )
+        st.success("PDF 生成完成 ✅")

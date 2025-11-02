@@ -31,7 +31,7 @@ def extract_table_3_2(docx_file):
 
             if all([col_fb, col_sj, col_kl, col_jh, col_wc]):
                 df = df[[col_fb, col_sj, col_kl, col_jh, col_wc]]
-                df.columns = ['分部工程', '设计工程量', '开累完成工程量', '本月计划工程量', '本月完成工程量']  # 重命名统一
+                df.columns = ['分部工程', '设计工程量', '开累完成工程量', '本月计划工程量', '本月完成工程量']
                 match_tables.append(df)
 
     if len(match_tables) >= 2:
